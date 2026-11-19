@@ -1,0 +1,77 @@
+---
+- name: Wait for Vault to be accessible
+  ansible.builtin.uri:
+    url: "https://{{ ansible_facts['default_ipv4']['address'] }}:{{ vault_port }}/"
+    status_code: 200
+    timeout: 30
+    validate_certs: false
+  register: vault_health
+  retries: 5
+  delay: 3
+  until: vault_health.status == 200
+
+- name: Gather Vault status information...
+  ansible.builtin.uri:
+    url: "https://{{ ansible_facts['default_ipv4']['address'] }}:{{ vault_port }}/v1/sys/init"
+    ca_path: "{{ cert_ca_certificate_path }}"
+    validate_certs: false
+    method: GET
+    return_content: true
+  register: vault_init_status
+  ignore_errors: true
+
+- name: Initialize Vault with Shamir
+  ansible.builtin.uri:
+    url: "https://{{ ansible_facts['default_ipv4']['address'] }}:{{ vault_port }}/v1/sys/init"
+    ca_path: "{{ cert_ca_certificate_path }}"
+    validate_certs: false
+    method: POST
+    body_format: json
+    body:
+      secret_shares: "{{ vault_shares }}"
+      secret_threshold: "{{ vault_threshold }}"
+    status_code: 200
+  register: vault_shamir_init_results
+  when:
+    - not (vault_init_status.json.initialized | bool)
+    - vault_seal_type == 'shamir'
+  no_log: true
+
+- name: Save Shamir root token and unseal keys
+  ansible.builtin.set_fact:
+    vault_token: "{{ vault_shamir_init_results.json.root_token }}"
+    vault_keys: "{{ vault_shamir_init_results.json.keys_base64 }}"
+    cacheable: false
+  when:
+    - vault_seal_type == 'shamir'
+    - vault_shamir_init_results is defined
+    - not (vault_shamir_init_results.skipped | default(false) | bool)
+  no_log: true
+
+- name: Check Vault seal status
+  ansible.builtin.uri:
+    url: "https://{{ ansible_facts['default_ipv4']['address'] }}:{{ vault_port }}/v1/sys/seal-status"
+    method: GET
+    status_code: 200
+    ca_path: "{{ cert_ca_certificate_path }}"
+    validate_certs: false
+  register: vault_seal_status
+
+- name: Unseal Vault
+  ansible.builtin.uri:
+    url: "https://{{ ansible_facts['default_ipv4']['address'] }}:{{ vault_port }}/v1/sys/unseal"
+    method: PUT
+    ca_path: "{{ cert_ca_certificate_path }}"
+    validate_certs: false
+    body_format: json
+    body:
+      key: "{{ item }}"
+  loop: "{{ vault_keys[:(vault_threshold | int)] }}"
+  when:
+    - vault_seal_type == 'shamir'
+    - vault_keys is defined
+    - vault_seal_status.json.sealed | bool
+
+- name: Show Vault vault_seal_status
+  ansible.builtin.debug:
+    var: vault_seal_status.json

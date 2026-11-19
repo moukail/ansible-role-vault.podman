@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  author: I Moukafih
+  description: Ansible Role for Vault with Quadlet
+  license: MIT
+  min_ansible_version: "2.1"
+  galaxy_tags:
+    - Vault
+    - Security

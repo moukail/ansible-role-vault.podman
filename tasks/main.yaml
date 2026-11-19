@@ -1,0 +1,137 @@
+---
+- name: Ensure Podman is installed
+  become: true
+  ansible.builtin.package:
+    name: podman
+    state: present
+
+#- name: Open Vault port in firewall
+#  become: true
+#  ansible.posix.firewalld:
+#    port: "{{ vault_port }}/tcp"
+#    permanent: true
+#    state: enabled
+#    immediate: true
+
+- name: Enable systemd lingering for the user
+  become: true
+  ansible.builtin.command:
+    cmd: "loginctl enable-linger {{ ansible_user }}"
+    creates: "/var/lib/systemd/linger/{{ ansible_user }}"
+
+- name: Create Vault base directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    recurse: true
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0750"
+  loop:
+    - /opt/vault
+    - /opt/vault/tls
+
+#- name: Get Vault container user information
+#  become: false
+#  ansible.builtin.command: podman run --rm --entrypoint id {{ vault_image }}
+#  register: vault_container_identity
+#  changed_when: false
+
+- name: Get Vault container user information
+  containers.podman.podman_container:
+    name: vault_id
+    image: "{{ vault_image }}"
+    entrypoint: id
+    rm: true
+    state: started
+    detach: false
+  register: vault_container_identity
+  changed_when: false
+
+- name: Set Vault container UID and GID
+  ansible.builtin.set_fact:
+    vault_container_uid: "{{ vault_container_identity.stdout | regex_search('uid=([0-9]+)', '\\1') | first }}"
+    vault_container_gid: "{{ vault_container_identity.stdout | regex_search('gid=([0-9]+)', '\\1') | first }}"
+
+- name: Create Vault container directories
+  become: true
+  become_method: containers.podman.podman_unshare
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    recurse: true
+    owner: "{{ vault_container_uid }}"
+    group: "{{ vault_container_gid }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: /opt/vault/config, mode: "0750"}
+    - {path: /opt/vault/data, mode: "0700"}
+    - {path: /opt/vault/tls, mode: "0750"}
+    - {path: /opt/vault/logs, mode: "0750"}
+
+- name: Secure Vault TLS private key
+  become: true
+  become_method: containers.podman.podman_unshare
+  ansible.builtin.file:
+    path: /opt/vault/tls/server.key
+    state: file
+    owner: "{{ vault_container_uid }}"
+    group: "{{ vault_container_gid }}"
+    mode: "0600"
+
+- name: Generate Vault configuration file
+  become: true
+  become_method: containers.podman.podman_unshare
+  ansible.builtin.template:
+    src: config.hcl.j2
+    dest: /opt/vault/config/config.hcl
+    owner: "{{ vault_container_uid }}"
+    group: "{{ vault_container_gid }}"
+    mode: "0640"
+
+- name: Create Podman Quadlet directory
+  become: true
+  become_user: "{{ ansible_user }}"
+  ansible.builtin.file:
+    path: ~/.config/containers/systemd/
+    state: directory
+    mode: "0755"
+
+- name: Create Quadlet for Vault container
+  become: true
+  become_user: "{{ ansible_user }}"
+  containers.podman.podman_container:
+    name: "{{ vault_container_name }}"
+    image: "{{ vault_image }}"
+    state: quadlet
+    quadlet_filename: "{{ vault_container_name }}.container"
+    quadlet_file_mode: '0640'
+    command: server
+    ports:
+      - "{{ vault_port }}:8200"
+    volumes:
+      - /opt/vault/config:/vault/config:ro,Z
+      - /opt/vault/tls:/vault/tls:ro,Z
+      - /opt/vault/data:/vault/data:Z
+      - /opt/vault/logs:/vault/logs:Z
+
+#- name: Create Quadlet for Vault container
+#  become: true
+#  become_user: "{{ ansible_user }}"
+#  ansible.builtin.template:
+#    src: vault.container.j2
+#    dest: "~/.config/containers/systemd/{{ vault_container_name }}-container"
+#    mode: '0644'
+
+- name: Enable and start Vault container via Quadlet
+  become: true
+  become_user: "{{ ansible_user }}"
+  ansible.builtin.systemd:
+    name: "{{ vault_container_name }}.service"
+    state: restarted
+    daemon_reload: true
+    scope: user
+
+- name: Initialize OpenBao
+  ansible.builtin.include_tasks: initialize.yaml

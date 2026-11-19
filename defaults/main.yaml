@@ -1,0 +1,7 @@
+---
+vault_version: 2.2.2
+vault_image: docker.io/hashicorp/vault:{{ vault_version }}
+vault_container_name: vault
+vault_port: 8200
+vault_shares: 5
+vault_threshold: 3

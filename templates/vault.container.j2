@@ -1,0 +1,34 @@
+[Unit]
+Description=Vault Server Container
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName={{ vault_container_name }}
+Image={{ vault_image }}
+
+User=vault
+Group=vault
+
+PublishPort={{ vault_port }}:8200
+#PublishPort=8201:8201
+
+Volume=/opt/vault/config:/vault/config:ro,Z
+Volume=/opt/vault/tls:/vault/tls:ro,Z
+Volume=/opt/vault/data:/vault/data:Z
+Volume=/opt/vault/logs:/vault/logs:Z
+
+ReadOnly=true
+NoNewPrivileges=true
+DropCapability=ALL
+AddCapability=IPC_LOCK
+
+Exec=server
+
+[Service]
+Restart=always
+RestartSec=5
+LimitCORE=0
+
+[Install]
+WantedBy=default.target

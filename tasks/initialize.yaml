@@ -35,7 +35,6 @@
   when:
     - not (vault_init_status.json.initialized | bool)
     - vault_seal_type == 'shamir'
-  no_log: true
 
 - name: Save Shamir root token and unseal keys
   ansible.builtin.set_fact:

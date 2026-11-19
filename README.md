@@ -6,6 +6,10 @@ Example Requirements
 
 ```yml
 ---
+collections:
+  - community.crypto
+  - containers.podman
+
 roles:
   - name: cert-generator
     src: git+https://github.com/moukail/ansible-role-cert-generator.git

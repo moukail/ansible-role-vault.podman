@@ -5,13 +5,13 @@
     name: podman
     state: present
 
-#- name: Open Vault port in firewall
-#  become: true
-#  ansible.posix.firewalld:
-#    port: "{{ vault_port }}/tcp"
-#    permanent: true
-#    state: enabled
-#    immediate: true
+- name: Open Vault port in firewall
+  become: true
+  ansible.posix.firewalld:
+    port: "{{ vault_port }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
 
 - name: Enable systemd lingering for the user
   become: true
@@ -31,12 +31,6 @@
   loop:
     - /opt/vault
     - /opt/vault/tls
-
-#- name: Get Vault container user information
-#  become: false
-#  ansible.builtin.command: podman run --rm --entrypoint id {{ vault_image }}
-#  register: vault_container_identity
-#  changed_when: false
 
 - name: Get Vault container user information
   containers.podman.podman_container:
@@ -115,14 +109,6 @@
       - /opt/vault/tls:/vault/tls:ro,Z
       - /opt/vault/data:/vault/data:Z
       - /opt/vault/logs:/vault/logs:Z
-
-#- name: Create Quadlet for Vault container
-#  become: true
-#  become_user: "{{ ansible_user }}"
-#  ansible.builtin.template:
-#    src: vault.container.j2
-#    dest: "~/.config/containers/systemd/{{ vault_container_name }}-container"
-#    mode: '0644'
 
 - name: Enable and start Vault container via Quadlet
   become: true
